@@ -1,0 +1,650 @@
+var rdapp = {
+  RDAPP_DIR: "http://radugadesign.com/upload/shader/",
+  DEBUG: false,
+  LOAD_SRC: null,
+  LOAD_RDWEB: null,
+  FALLBACK: false,
+  
+  
+  RDWEB_SIZE: [0,0],
+  depth_loaded: false,
+  src_loaded: false,
+  progress: 0,
+  windowWidth: 100,
+  windowHeight: 100
+};
+
+function run_raduga_shader(canvasEl) {
+  rdapp.canvas = canvasEl;
+  out = ()=>{
+    if (rdapp.update) {
+      rdapp.update();
+    }
+  };
+  rdapp.load_config();
+  return out;
+}
+
+rdapp.load_config = () => {
+  rdapp.loadJSON(rdapp.RDAPP_DIR+"/config.txt", (e) => {
+    rdapp.SRC_NUM = e.SRC_NUM;
+    rdapp.RDWEB_NUM = e.RDWEB_NUM;
+    if (rdapp.DEBUG) {
+      console.log("Config Loaded");
+      console.log(e);
+    }
+    rdapp.load_src();
+    rdapp.load_rdweb();
+  });
+};
+
+rdapp.load_src = () => {
+  var id;
+  if (rdapp.DEBUG && rdapp.LOAD_SRC !== null) {
+    id = rdapp.LOAD_SRC;
+  } else {
+    id = Math.floor(Math.random() * rdapp.SRC_NUM);
+  }
+  var path = rdapp.RDAPP_DIR + "/src/SRC_"+rdapp.numname(id)+".jpg";
+  rdapp.SRC_PATH = path;
+  if (rdapp.DEBUG) console.log(rdapp.SRC_PATH);
+};
+
+rdapp.load_rdweb = () => {
+  var id;
+  if (rdapp.DEBUG && rdapp.LOAD_RDWEB !== null) {
+    id = rdapp.LOAD_RDWEB;
+  } else {
+    id = Math.floor(Math.random() * rdapp.RDWEB_NUM);
+  }
+  var path = rdapp.RDAPP_DIR + "/rdweb/RDWEB_"+rdapp.numname(id);
+  rdapp.RDWEB_PATH = path;
+  if (rdapp.DEBUG) console.log(rdapp.RDWEB_PATH);
+  rdapp.loadJSON(rdapp.RDWEB_PATH+"/CONFIG.txt", (e) => {
+    if (rdapp.DEBUG) {
+      console.log("RDWEB Config loaded");
+      console.log(e);
+    }
+    rdapp.RDWEB_CONFIG = e;
+    rdapp.run();
+  });
+};
+
+rdapp.run = function() {
+  var canvas = rdapp.canvas;
+  var gl = canvas.getContext("webgl");
+  if (gl === null) return rdapp.fallback();
+  if (rdapp.DEBUG && rdapp.FALLBACK) return rdapp.fallback();
+
+  // INIT INPUT
+  window.addEventListener("mousemove", (e)=>{
+    if (!rdapp.ROTATED) {
+      rdapp.input.ex = e.clientX/rdapp.windowWidth;
+      rdapp.input.ey = e.clientY/rdapp.windowHeight;
+      ar = rdapp.windowWidth / rdapp.windowHeight;
+      if (ar > 1) rdapp.input.ey /= ar;
+      else rdapp.input.ex *= ar;
+    } else {
+      rdapp.input.ey = e.clientX/rdapp.windowWidth;
+      rdapp.input.ex = e.clientY/rdapp.windowHeight;
+      ar = rdapp.windowWidth / rdapp.windowHeight;
+      if (ar > 1) rdapp.input.ex /= ar;
+      else rdapp.input.ey *= ar;
+    }
+  });
+  window.addEventListener("touchmove", (e)=>{
+    if (!rdapp.ROTATED) {
+      rdapp.input.ex = e.touches[0].clientX/rdapp.windowWidth;
+      rdapp.input.ey = e.touches[0].clientY/rdapp.windowHeight;
+      var ar = rdapp.windowWidth / rdapp.windowHeight;
+      if (ar > 1) rdapp.input.ey /= ar;
+      else rdapp.input.ex *= ar;
+    } else {
+      rdapp.input.ey = e.touches[0].clientX/rdapp.windowWidth;
+      rdapp.input.ex = e.touches[0].clientY/rdapp.windowHeight;
+      ar = rdapp.windowWidth / rdapp.windowHeight;
+      if (ar > 1) rdapp.input.ex /= ar;
+      else rdapp.input.ey *= ar;
+    }
+  });
+  window.addEventListener("touchstart", (e)=>{
+    if (!rdapp.ROTATED) {
+      rdapp.input.ex = e.touches[0].clientX/rdapp.windowWidth;
+      rdapp.input.ey = e.touches[0].clientY/rdapp.windowHeight;
+      var ar = rdapp.windowWidth / rdapp.windowHeight;
+      if (ar > 1) rdapp.input.ey /= ar;
+      else rdapp.input.ex *= ar;
+    } else {
+      rdapp.input.ey = e.touches[0].clientX/rdapp.windowWidth;
+      rdapp.input.ex = e.touches[0].clientY/rdapp.windowHeight;
+      ar = rdapp.windowWidth / rdapp.windowHeight;
+      if (ar > 1) rdapp.input.ex /= ar;
+      else rdapp.input.ey *= ar;
+    }
+    rdapp.input.x = rdapp.input.ex + rdapp.input.ox;
+    rdapp.input.y = rdapp.input.ey + rdapp.input.oy;
+    rdapp.input.px = rdapp.input.ex;
+    rdapp.input.py = rdapp.input.ey;
+  });
+  var orientationEvtHandler = function(e) {
+    var x = Math.abs(event.alpha + event.beta - event.gamma) / 90;
+    var y = Math.abs(event.gamma + event.beta - event.alpha) / 90;
+    if (!rdapp.ROTATED) {
+      rdapp.input.ox = x;
+      rdapp.input.oy = y;
+    } else {
+      rdapp.input.oy = x;
+      rdapp.input.ox = y;
+    }
+  };
+  window.addEventListener('deviceorientation', orientationEvtHandler)
+
+  // INIT GL
+  var arrays = {
+    a_pos: {
+      numComponents: 2,
+      data: [-1,-1,  -1, 1,   1,-1,  -1, 1,  1,-1,   1, 1]
+    }
+  };
+  var bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
+  var programInfo = twgl.createProgramInfo(gl, [rdapp.vs, rdapp.fs]);
+  twgl.setBuffersAndAttributes(gl, programInfo, bufferInfo);
+  var programBlitInfo = twgl.createProgramInfo(gl, [rdapp.vs, rdapp.fs_blit]);
+  twgl.setBuffersAndAttributes(gl, programBlitInfo, bufferInfo);
+
+  // CREATE TEXTURES
+  var tex_dif = twgl.createTexture(gl, {width:10,height:10});
+  var tex_depth = twgl.createTexture(gl, {width:10,height:10});
+  var tex_normals = twgl.createTexture(gl, {width:10,height:10});
+  var fboInfo = twgl.createFramebufferInfo(gl, null, 10, 10);
+  rdapp.fbo = fboInfo;
+  
+
+  // LOAD SRC IMAGE
+  rdapp.SRC_LOADED = false;
+  img_dif = new Image();
+  img_dif.crossOrigin = "Anonymous";
+  img_dif.src = rdapp.SRC_PATH;
+  img_dif.onload = () => {
+    twgl.setTextureFromElement(gl, tex_dif, img_dif);
+    twgl.setTextureParameters(gl, tex_dif, {min: gl.LINEAR, mag: gl.LINEAR});
+    rdapp.src_loaded = true;
+    if (rdapp.DEBUG) console.log("SRC loaded");
+  };
+
+  // LOAD DEPTH IMAGE
+  img_depth = new Image();
+  rdapp.load_depth = (size) => {
+    img_depth.src = rdapp.RDWEB_PATH+"/DEPTH_"+size[0]+"x"+size[1]+".png";
+    img_depth.onload = () => {
+      twgl.setTextureFromElement(gl, tex_depth, img_depth);
+      twgl.setTextureParameters(gl, tex_depth, {min: gl.NEAREST, mag: gl.NEAREST});
+      twgl.resizeFramebufferInfo(gl, fboInfo, null,
+        Math.floor(img_depth.width/2.0), Math.floor(img_depth.height/2.0));
+        gl.useProgram(programInfo.program);
+        twgl.setUniforms(programInfo, {
+          u_depth_res: [img_depth.width, img_depth.height]
+        });
+        rdapp.RDWEB_SIZE = [img_depth.width, img_depth.height];
+        gl.useProgram(programBlitInfo.program);
+        twgl.setUniforms(programBlitInfo, {
+            u_depth_res: [img_depth.width, img_depth.height]
+        });
+        if (rdapp.DEBUG) console.log("Depth map loaded "+size[0]+" x "+size[1]);
+        console.log("Fbo resized to "+fboInfo.width+" x "+fboInfo.height);
+        rdapp.depth_loaded = true;
+        
+      };
+  };
+
+  // LOAD CONFIG
+  gl.useProgram(programInfo.program);
+  twgl.setUniforms(programInfo, {
+      u_max_depth: rdapp.RDWEB_CONFIG.u_max_depth,
+      u_fov: rdapp.RDWEB_CONFIG.u_fov,
+      u_cam_mat: rdapp.RDWEB_CONFIG.u_cam_mat,
+      u_amp: rdapp.RDWEB_CONFIG.u_amp,
+      u_freq: rdapp.RDWEB_CONFIG.u_freq,
+      u_pos: rdapp.RDWEB_CONFIG.u_pos.flat(),
+      u_octaves: rdapp.RDWEB_CONFIG.u_octaves,
+      u_mirror: rdapp.RDWEB_CONFIG.u_mirror,
+      u_cam_mode: rdapp.RDWEB_CONFIG.u_cam_mode,
+    });
+
+  // CONTROLS
+  const m4 = twgl.m4;
+  var tex_mat = m4.identity();
+  gl.useProgram(programInfo.program);
+  twgl.setUniforms(programInfo, {
+      u_tex_scale: 2
+  });
+
+  //RESIZE
+  function resize() {
+    var pixel = window.devicePixelRatio;
+    var windowWidth = window.innerWidth;
+    var windowHeight = window.innerHeight;
+    var parent = document.getElementsByClassName("dynamic_bg")[0].children[0].children[0];
+    var container = document.getElementsByClassName("dynamic_bg")[0];
+    var parentClientWidth = parent.clientWidth;
+    var parentClientHeight = parent.clientHeight;
+    var parentWidth = parent.width;
+    var parentHeight = parent.height;
+
+
+    if (canvas.width != parentWidth || canvas.height != parentHeight) {
+      canvas.width = parentWidth;
+      canvas.height = parentHeight;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.useProgram(programBlitInfo.program);
+      twgl.setUniforms(programBlitInfo, {
+          u_canvas_res: [canvas.width, canvas.height],
+          u_canvas_c_res: [parentClientWidth, parentClientHeight],
+      });
+      if (rdapp.DEBUG) console.log("Canvas resized to "+canvas.width+" x "+canvas.height);
+
+    }
+    
+    if (rdapp.windowWidth != windowWidth || rdapp.windowHeight != windowHeight) {
+      rdapp.windowWidth = windowWidth;
+      rdapp.windowHeight = windowHeight;
+      
+      gl.useProgram(programBlitInfo.program);
+      twgl.setUniforms(programBlitInfo, {
+          u_window_res: [windowWidth, windowHeight]
+      });
+    
+      var oldrot = rdapp.ROTATED;
+      size = rdapp.find_size(windowWidth*((pixel-1)/3+1), windowHeight*((pixel-1)/3+1));
+      if (size[0] != rdapp.RDWEB_SIZE[0] || size[1] != rdapp.RDWEB_SIZE[1]) {
+        console.log("Loading depth of "+size[0]+" x "+size[1]);
+        rdapp.RDWEB_SIZE = size;
+        rdapp.load_depth(size);
+      }
+      if (oldrot != rdapp.ROTATED) {
+        if (rdapp.DEBUG) console.log("Rotated: ", rdapp.ROTATED);
+        gl.useProgram(programBlitInfo.program);
+        twgl.setUniforms(programBlitInfo, {
+          u_rot: rdapp.ROTATED,
+        });
+        gl.useProgram(programInfo.program);
+        twgl.setUniforms(programInfo, {
+          u_rot: rdapp.ROTATED,
+        });
+      }
+    }
+  }
+  resize();
+  function render() {
+    gl.useProgram(programInfo.program);
+    twgl.setUniforms(programInfo, {
+      u_tex_dif: tex_dif,
+      u_tex_depth: tex_depth,
+      u_tex_mat: tex_mat
+    });
+
+    twgl.bindFramebufferInfo(gl, fboInfo);
+    twgl.drawBufferInfo(gl, bufferInfo);
+  }
+
+  function blit(tex) {
+    gl.useProgram(programBlitInfo.program);
+    twgl.setUniforms(programBlitInfo, {u_tex: tex});
+    twgl.bindFramebufferInfo(gl, null);
+    twgl.drawBufferInfo(gl, bufferInfo);
+  }
+
+  // RENDER
+  rdapp.update = () => {
+    if (rdapp.src_loaded && rdapp.depth_loaded && rdapp.progress < 1) {
+        rdapp.progress += 0.03;
+        gl.useProgram(programInfo.program);
+        twgl.setUniforms(programInfo, {u_progress: rdapp.easeInOutQuad(rdapp.progress)});
+    }
+    rdapp.update_input();
+    rdapp.mat_rotate(tex_mat, rdapp.motion);
+    resize();
+    render();
+    blit(fboInfo.attachments[0]);
+  }
+}
+rdapp.easeInOutQuad = function (t) { return t<.5 ? 2*t*t : -1+(4-2*t)*t };
+
+rdapp.find_size = (w_, h_) => {
+  var w = w_;
+  var h = h_;
+  var ar = w / h;
+  if (ar < 1) {
+    w = h_;
+    h = w_;
+    ar = w / h;
+    rdapp.ROTATED = true;
+  } else {
+    rdapp.ROTATED = false;
+  }
+  var sizes = rdapp.RDWEB_CONFIG.sizes;
+  var id_best = null;
+  var id_largest = null;
+  var diff_best = 100000;
+  var size_largest = 0;
+  for (var i = 0; i < sizes.length; i++) {
+    var sw = sizes[i][0] / 2;
+    var sh = sizes[i][1] / 2;
+    var ar2 = sw / sh;
+    var side = null;
+    var side2 = null;
+    if (ar > ar2) {
+      side = w;
+      side2 = sw;
+    } else {
+      side = h;
+      side2 = sh;
+    }
+    if (side2 > size_largest) {
+      id_largest = i;
+      size_largest = side2;
+    }
+    var _diff_best = side2 - side;
+    if (_diff_best < diff_best && _diff_best > 0) {
+      diff_best = _diff_best;
+      id_best = i;
+    }
+  }
+  if (id_best === null) {
+    id_best = id_largest;
+  }
+  return sizes[id_best];
+};
+
+
+rdapp.input = {
+  ex:-1,ey:-1,x:-1,y:-1,px:0,py:0,ox:0,oy:0
+};
+rdapp.motion = [0,-0.0001];
+rdapp.update_input = () => {
+  var v2 = rdapp.vec2;
+  rdapp.input.px = rdapp.input.x;
+  rdapp.input.py = rdapp.input.y;
+  rdapp.input.x = rdapp.input.ex + rdapp.input.ox;
+  rdapp.input.y = rdapp.input.ey + rdapp.input.oy;
+  if (rdapp.input.px == -1) rdapp.input.px = rdapp.input.x;
+  if (rdapp.input.py == -1) rdapp.input.py = rdapp.input.y;
+  var dx = rdapp.input.x - rdapp.input.px;
+  var dy = rdapp.input.y - rdapp.input.py;
+  var scale = 0.15;
+
+  var max_a = 100;
+  var force = [dx, dy];
+  force = v2.mul(force, scale);
+  var forcelen = Math.min(max_a, v2.len(force));
+  force = v2.mul(v2.norm(force), forcelen);
+  var friction = v2.norm(rdapp.motion);
+  friction = v2.mul(friction, -Math.max(0, v2.len(rdapp.motion)*0.1-0.0001) );
+  force = v2.add(force, friction);
+  rdapp.motion = [rdapp.motion[0]+force[0], rdapp.motion[1]+force[1]];
+};
+
+rdapp.loadJSON = function(path, cb) {
+   var xobj = new XMLHttpRequest();
+       xobj.overrideMimeType("application/json");
+   xobj.open('GET', path, true); // Replace 'my_data' with the path to your file
+   xobj.onreadystatechange = function () {
+         if (xobj.readyState == 4 && xobj.status == "200") {
+           cb(JSON.parse(xobj.responseText));
+         }
+   };
+   xobj.send(null);
+}
+
+rdapp.vs = `
+attribute vec2 a_pos;
+varying vec2 v_pos;
+void main() {
+  v_pos = a_pos;
+  gl_Position = vec4(a_pos,0.0,1.0);
+}`;
+
+rdapp.fs = `
+precision highp float;
+varying vec2 v_pos;
+uniform sampler2D u_tex_dif;
+uniform sampler2D u_tex_depth;
+
+uniform float u_tex_scale;
+uniform mat4 u_tex_mat;
+uniform vec2 u_depth_res;
+uniform bool u_rot;
+uniform float u_progress;
+
+// RD CONFIG
+uniform float u_depth_min;
+uniform float u_depth_max;
+uniform float u_max_depth;
+uniform mat4 u_cam_mat;
+uniform float u_fov;
+uniform float u_amp[8];
+uniform float u_freq[8];
+uniform vec3 u_pos[8];
+uniform int u_octaves;
+uniform bool u_mirror;
+uniform int u_cam_mode;
+
+const float PI = 3.1415926535897932384626433832795;
+
+float unpack(vec2 x) {
+  float fix = 256.0/255.0;
+  return x.x*fix/1.0+x.y*fix/255.0;
+}
+
+// TEXTURE
+
+vec2 sample_cube(vec3 p) {
+  float absX = abs(p.x);
+  float absY = abs(p.y);
+  float absZ = abs(p.z);
+  bool isXPositive = p.x > 0.0;
+  bool isYPositive = p.y > 0.0;
+  bool isZPositive = p.z > 0.0;
+  float maxAxis;
+  vec2 uv;
+  if (isXPositive && absX >= absY && absX >= absZ) {
+    maxAxis = absX; uv.x = p.z; uv.y = p.y; }
+  if (!isXPositive && absX >= absY && absX >= absZ) {
+    maxAxis = absX; uv.x = -p.z; uv.y = p.y; }
+  if (isYPositive && absY >= absX && absY >= absZ) {
+    maxAxis = absY; uv.x = -p.x; uv.y = -p.z; }
+  if (!isYPositive && absY >= absX && absY >= absZ) {
+    maxAxis = absY; uv.x = -p.x; uv.y = p.z; }
+  if (isZPositive && absZ >= absX && absZ >= absY) {
+    maxAxis = absZ; uv.x = p.x; uv.y = p.y; }
+  if (!isZPositive && absZ >= absX && absZ >= absY) {
+    maxAxis = absZ; uv.x = -p.x; uv.y = p.y; }
+  uv = 0.5 * (uv / maxAxis + 1.0);
+  return uv;
+}
+
+vec2 sample_norm(vec2 uv) {
+  vec2 uvi = fract(uv/2.0)*2.0;
+  if (uvi.x > 1.0) uv.x = (1.0-fract(uv.x));
+  else uv.x = fract(uv.x);
+  if (uvi.y > 1.0) uv.y = (1.0-fract(uv.y));
+  else uv.y = fract(uv.y);
+  return (uv-0.5)*0.9+0.5;
+}
+
+vec4 sample_diffuse(vec3 p) {
+  if (u_rot) p = p.yxz;
+  vec4 color;
+  vec2 uv = sample_norm(sample_cube(mat3(u_tex_mat)*p)*vec2(u_tex_scale));
+  color = texture2D(u_tex_dif, uv);
+  return color;
+}
+
+// TEXTURE
+
+// DISTORSION
+vec3 distort(vec3 p, float s, float f) {
+  p = s*sin(f*p.yzx*PI*2.0);
+  return p;
+}
+vec3 distort_oct(vec3 p) {
+  for (int i = 0; i < 8; i++) {
+    if (i >= u_octaves) break;
+    p += distort(p+u_pos[i], u_amp[i], u_freq[i]);
+  }
+  return p;
+}
+vec3 mirror(vec3 p) {
+  p.x = abs(p.x);
+  float d = 0.1;
+  if (p.x < d) p.x = mix(p.x, 0.0, smoothstep(0.0,1.0,1.0-p.x/d));
+  return p;
+}
+vec3 mapP(vec3 p) {
+  if (u_mirror) p = mirror(p);
+  return distort_oct(p);
+}
+// DISTORSION
+
+// CAMERA
+vec3 raydir(float fov, vec2 p) {
+  vec3 forward = vec3(0.0,0.0,1.0);
+  vec3 right = vec3(1.0,0.0,0.0);
+  vec3 up = vec3(0.0,1.0,0.0);
+  vec3 rd = normalize(forward + fov * p.x * right + fov * p.y * up);
+  return rd;
+}
+struct Cam {
+  vec3 eye;
+  vec3 ray;
+};
+Cam get_cam(vec2 uv) {
+  Cam cam;
+
+  if (u_cam_mode == 0) {
+    vec4 eye4 = vec4(0.0,0.0,0.0,1.0);
+    vec4 ray4 = vec4(raydir(u_fov, uv), 1.0);
+    vec3 eye = (u_cam_mat * eye4).xyz;
+    vec3 ray = (u_cam_mat * ray4).xyz - eye;
+    cam.eye = eye;
+    cam.ray = ray;
+  }
+
+  if (u_cam_mode == 1) {
+    vec4 eye4 = vec4(uv*u_fov,0.0,1.0);
+    vec3 ray = mat3(u_cam_mat) * vec3(0.0,0.0,1.0);
+    vec3 eye = (u_cam_mat * eye4).xyz;
+    cam.eye = eye;
+    cam.ray = ray;
+  }
+
+  return cam;
+}
+
+// CAMERA
+
+
+void main() {
+  vec2 uv = v_pos * vec2(1.0, -1.0);
+  float depth_ratio = u_depth_res.x / u_depth_res.y;
+  if (depth_ratio > 1.0) uv.y /= depth_ratio;
+  else uv.x *= depth_ratio;
+
+  vec2 uvt0 = v_pos*vec2(0.5, 0.5)+0.5;
+  uvt0 = floor(uvt0 * (u_depth_res / 2.0)) / (u_depth_res / 2.0);
+  vec2 pix = 1.0 / u_depth_res;
+
+  vec4 color = vec4(0.0,0.0,0.0,0.0);
+
+  for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 2; j++) {
+      vec2 uvt = uvt0 + vec2(-pix.x/2.0+float(i)*pix.x, -pix.y/2.0+float(j)*pix.y);
+      float depth = unpack(texture2D(u_tex_depth, uvt).rg);
+      depth *= u_max_depth;
+      // depth = depth * (u_depth_max-u_depth_min) + u_depth_min;
+      if (depth > 0.001) {
+        Cam cam = get_cam(uv);
+        vec3 p = cam.eye + cam.ray * depth;
+        p *= vec3(1.0, 1.0, 1.0);
+        vec3 mp = mapP(p);
+        // color += vec4(mp*0.5+0.5, 1.0);
+        color += sample_diffuse(mp);
+        // color += vec4(depth/3.0);
+      } else {
+        color += vec4(0.0,0.0,0.0,1.0);
+      }
+
+    }
+  }
+
+  color /= 4.0;
+  color *= u_progress;
+  gl_FragColor = color;
+
+
+
+}`;
+
+rdapp.fs_blit = `
+precision mediump float;
+varying vec2 v_pos;
+uniform sampler2D u_tex;
+uniform vec2 u_canvas_res;
+uniform vec2 u_canvas_c_res;
+uniform vec2 u_window_res;
+uniform vec2 u_depth_res;
+uniform vec2 u_canvas_offset;
+uniform bool u_rot;
+void main() {
+  vec2 uv = v_pos;
+  vec2 cr = u_window_res;
+  vec2 dr = u_depth_res;
+
+  uv *= u_canvas_c_res / u_window_res;
+
+
+  
+  if (u_rot) {
+    dr = dr.yx;
+    uv = uv.yx;
+  }  
+
+  float ar = cr.x / cr.y;
+  float ar2 = dr.x / dr.y;
+  float ar3 = ar / ar2;
+  if (ar3 < 1.0) {
+    if (!u_rot) uv.x *= ar3;
+    if (u_rot) uv.y *= ar3;
+  } else {
+    if (!u_rot) uv.y /= ar3;
+    if (u_rot) uv.x /= ar3;
+  }
+  
+  uv *= 1.0;
+
+  uv = uv*vec2(0.5,-0.5)+0.5;
+  gl_FragColor = texture2D(u_tex, uv);
+}
+`;
+
+rdapp.vec2 = {};
+rdapp.vec2.add = (a,b) => {return [a[0]+b[0], a[1]+b[1]]};
+rdapp.vec2.sub = (a,b) => {return [a[0]-b[0], a[1]-b[1]]};
+rdapp.vec2.mul = (a,b) => {return [a[0]*b, a[1]*b]};
+rdapp.vec2.div = (a,b) => {if (b==0) {return [0,0]} else {return [a[0]/b, a[1]/b]}};
+rdapp.vec2.len = (a) => {return Math.sqrt(a[0]*a[0]+a[1]*a[1])};
+rdapp.vec2.norm = (a) => {return rdapp.vec2.div(a, rdapp.vec2.len(a))};
+rdapp.mat_rotate = (mat, val) => {
+  var val_len = Math.sqrt(val[0]*val[0]+val[1]*val[1]);
+  var val_norm;
+  if (val_len != 0) {
+    val_norm = [val[0]/val_len, val[1]/val_len];
+    twgl.m4.axisRotate(mat, [val_norm[0], val_norm[1], 0], val_len, mat);
+  }
+}
+rdapp.numname = (num) => {
+  var zeros = "00000";
+  var nums = num.toString();
+  var numslen = nums.length;
+  return zeros.slice(0, zeros.length-nums.length) + nums;
+}

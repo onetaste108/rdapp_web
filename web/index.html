@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Radugadesign</title>
+  </head>
+  <body style="margin:0px; padding:0px; overflow: hidden">
+      <canvas id="rdcanvas" width="1024" height="1024" style="width: 100vw; height:100vh; margin: 0px; padding:0px"></canvas>
+  </body>
+
+  <script src="rdapp/twgl-full.min.js"></script>
+  <script src="rdapp/raduga_shader.js"></script>
+  <script> update = run_raduga_shader(document.getElementById("rdcanvas"));
+  alala = () =>{
+    update();
+    requestAnimationFrame(alala)
+  };
+  alala()
+  </script>
+
+</html>
